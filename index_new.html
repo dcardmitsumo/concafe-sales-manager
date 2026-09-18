@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>コンカフェ売上管理</title>
+<style>
+:root{--bg:#fff7fb;--card:#fff;--ink:#332631;--muted:#8c7a87;--pink:#e86aa6;--pink2:#ffd9ea;--line:#f0dce6;--good:#4c9b75}
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:linear-gradient(180deg,#fff3f9,#fff);color:var(--ink)}
+.wrap{max-width:980px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+h1{font-size:25px;margin:6px 0}.sub{color:var(--muted);font-size:13px}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:14px 0;box-shadow:0 8px 24px #8c49600d}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+label{font-size:12px;color:var(--muted);display:block;margin:0 0 5px}input,select,button{width:100%;font:inherit;border-radius:12px;padding:12px;border:1px solid var(--line);background:#fff}
+button{border:0;background:var(--pink);color:white;font-weight:700;cursor:pointer}.secondary{background:#fff;color:var(--pink);border:1px solid var(--pink)}
+.kpi{background:#fff9fc;border:1px solid var(--pink2);border-radius:15px;padding:12px}.kpi b{display:block;font-size:21px;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:10px 7px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted);font-size:12px}
+.money{text-align:right;white-space:nowrap}.actions{display:flex;gap:7px}.del{padding:7px;background:#fff;color:#c24b65;border:1px solid #f2c8d2}
+.badge{display:inline-block;background:var(--pink2);color:#9a3f6c;padding:4px 8px;border-radius:999px;font-size:12px}.empty{text-align:center;color:var(--muted);padding:24px}
+@media(max-width:650px){.grid4{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}table{font-size:12px}.wrap{padding:12px}h1{font-size:22px}}
+</style>
+</head>
+<body><div class="wrap">
+<div class="top"><div><h1>♡ コンカフェ売上管理</h1><div class="sub">お客様別・月別に自動集計／この端末に自動保存</div></div></div>
+
+<div class="card" style="margin-top:14px">
+<div class="grid">
+<div><label>キャスト名</label><input id="castName" type="text" placeholder="キャスト名"></div>
+<div><label>集計する月</label><input id="month" type="month"></div>
+</div>
+</div>
+
+<div class="card">
+<h2 style="font-size:17px;margin-top:0">売上を登録</h2>
+<div class="grid">
+<div><label>日付</label><input id="date" type="date"></div>
+<div><label>お客様名（手入力）</label><input id="customer" list="customers" placeholder="お客様名"><datalist id="customers"></datalist></div>
+<div><label>売上項目</label><select id="category"><option>チェキ</option><option>ドリンク</option><option>シャンパン</option><option>フード</option><option>ボトル</option><option>その他</option></select></div>
+<div><label>数量</label><input id="qty" type="number" min="1" value="1"></div>
+<div><label>単価（円）</label><input id="price" type="number" min="0" inputmode="numeric" placeholder="1000"></div>
+<div><label>売上金額</label><input id="calc" readonly value="¥0"></div>
+</div>
+<button id="add" style="margin-top:12px">売上を登録</button>
+</div>
+
+<div class="grid4">
+<div class="kpi"><span class="sub">今月の総売上</span><b id="total">¥0</b></div>
+<div class="kpi"><span class="sub">来店組数</span><b id="visits">0</b></div>
+<div class="kpi"><span class="sub">お客様数</span><b id="people">0</b></div>
+<div class="kpi"><span class="sub">平均客単価</span><b id="avg">¥0</b></div>
+</div>
+
+<div class="card"><h2 style="font-size:17px;margin-top:0">お客様別 月間ランキング</h2><div id="ranking"></div></div>
+<div class="card">
+<div class="top">
+  <div><h2 style="font-size:17px;margin:0">年間ランキング</h2><div class="sub">1月〜12月の売上をお客様別に自動集計</div></div>
+  <select id="year" style="width:auto"></select>
+</div>
+<div id="annualRanking" style="margin-top:10px"></div>
+</div>
+<div class="card"><div class="top"><h2 style="font-size:17px;margin:0">売上履歴</h2><button id="csv" class="secondary" style="width:auto;padding:8px 12px">CSV出力</button></div><div style="overflow:auto"><table><thead><tr><th>日付</th><th>お客様</th><th>項目</th><th>数量</th><th class="money">売上</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></div>
+</div>
+<script>
+const KEY="concafe_sales_v1"; let data=JSON.parse(localStorage.getItem(KEY)||"[]");
+const $=id=>document.getElementById(id), yen=n=>"¥"+Math.round(n).toLocaleString("ja-JP");
+const today=new Date(); $("date").value=today.toISOString().slice(0,10); $("month").value=today.toISOString().slice(0,7);
+function amount(){return (+$("qty").value||0)*(+$("price").value||0)}; 
+["qty","price"].forEach(x=>$(x).addEventListener("input",()=> $("calc").value=yen(amount())));
+$("add").onclick=()=>{let c=$("customer").value.trim(), p=+$("price").value,q=+$("qty").value;if(!c||!$("date").value||p<0||!q){alert("日付・お客様名・数量・単価を確認してください");return}
+data.push({id:Date.now(),date:$("date").value,customer:c,category:$("category").value,qty:q,price:p,total:p*q});save();$("customer").value="";$("price").value="";$("qty").value=1;$("calc").value="¥0";render()};
+function save(){localStorage.setItem(KEY,JSON.stringify(data))}
+$("month").onchange=render;
+$("year").onchange=renderAnnual;
+$("castName").value=localStorage.getItem("concafe_cast_name")||"";
+$("castName").addEventListener("input",()=>localStorage.setItem("concafe_cast_name",$("castName").value));
+function render(){
+ let m=$("month").value, d=data.filter(x=>x.date.startsWith(m)); let sum=d.reduce((a,x)=>a+x.total,0);
+ $("total").textContent=yen(sum); let visits=new Set(d.map(x=>x.date+"|"+x.customer)).size; $("visits").textContent=visits;
+ let names=[...new Set(d.map(x=>x.customer))]; $("people").textContent=names.length; $("avg").textContent=yen(visits?sum/visits:0);
+ let agg={}; d.forEach(x=>{agg[x.customer]=(agg[x.customer]||0)+x.total});
+ let rank=Object.entries(agg).sort((a,b)=>b[1]-a[1]);
+ $("ranking").innerHTML=rank.length?`<table><thead><tr><th>順位</th><th>お客様</th><th class="money">月間売上</th></tr></thead><tbody>${rank.map((x,i)=>`<tr><td><span class="badge">${i+1}位</span></td><td>${esc(x[0])}</td><td class="money"><b>${yen(x[1])}</b></td></tr>`).join("")}</tbody></table>`:'<div class="empty">この月の売上はまだありません</div>';
+ $("rows").innerHTML=d.sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).map(x=>`<tr><td>${x.date.slice(5).replace("-","/")}</td><td>${esc(x.customer)}</td><td>${x.category}</td><td>${x.qty}</td><td class="money">${yen(x.total)}</td><td><button class="del" onclick="removeSale(${x.id})">削除</button></td></tr>`).join("");
+ let all=[...new Set(data.map(x=>x.customer))].sort(); $("customers").innerHTML=all.map(x=>`<option value="${esc(x)}">`).join("");
+ renderAnnual();
+}
+
+function setupYears(){
+ let years=[...new Set(data.map(x=>x.date.slice(0,4)))];
+ let current=$("month").value.slice(0,4) || String(new Date().getFullYear());
+ if(!years.includes(current)) years.push(current);
+ years.sort((a,b)=>b.localeCompare(a));
+ let selected=$("year").value || current;
+ $("year").innerHTML=years.map(y=>`<option value="${y}">${y}年</option>`).join("");
+ $("year").value=years.includes(selected)?selected:current;
+}
+function renderAnnual(){
+ setupYears();
+ let y=$("year").value;
+ let d=data.filter(x=>x.date.startsWith(y+"-"));
+ let agg={};
+ d.forEach(x=>{
+   if(!agg[x.customer]) agg[x.customer]={sales:0,visits:new Set()};
+   agg[x.customer].sales+=x.total;
+   agg[x.customer].visits.add(x.date);
+ });
+ let rank=Object.entries(agg).sort((a,b)=>b[1].sales-a[1].sales);
+ $("annualRanking").innerHTML=rank.length
+ ? `<table><thead><tr><th>順位</th><th>お客様</th><th>来店回数</th><th class="money">年間売上</th></tr></thead><tbody>${
+     rank.map((x,i)=>`<tr><td><span class="badge">${i+1}位</span></td><td>${esc(x[0])}</td><td>${x[1].visits.size}回</td><td class="money"><b>${yen(x[1].sales)}</b></td></tr>`).join("")
+   }</tbody></table>`
+ : `<div class="empty">${y}年の売上はまだありません</div>`;
+}
+function esc(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+window.removeSale=id=>{if(confirm("この売上を削除しますか？")){data=data.filter(x=>x.id!==id);save();render()}};
+$("csv").onclick=()=>{let m=$("month").value,d=data.filter(x=>x.date.startsWith(m));let csv="\uFEFF日付,お客様名,項目,数量,単価,売上\n"+d.map(x=>[x.date,x.customer,x.category,x.qty,x.price,x.total].map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");let a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`コンカフェ売上_${m}.csv`;a.click()};
+render();
+</script></body></html>
